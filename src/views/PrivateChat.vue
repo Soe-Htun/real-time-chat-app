@@ -72,12 +72,14 @@
           :messages="filteredMessages"
           :selected-chat="selectedChat"
           :current-user-id="user?.uid"
+          @delete-message="handleDeleteMessage"
         />
 
         <!-- Input -->
         <MessageInput
           :selected-chat="selectedChat"
           @send-message="saveMessage"
+          @send-voice-message="saveVoiceMessage"
         />
       </div>
     </div>
@@ -95,6 +97,8 @@ import {
   onSnapshot,
   doc,
   setDoc,
+  updateDoc,
+  arrayUnion,
 } from "firebase/firestore";
 import { useAuthStore } from "@/store";
 import { storeToRefs } from "pinia";
@@ -318,11 +322,11 @@ function buildConversations() {
         displayName: msg.userId === user.value.uid ? msg.toUserName : msg.userName,
         photoURL: partnerUser?.photoURL || null,
         lastActive: partnerUser?.lastActive || null,
-        lastMessage: msg.message,
+        lastMessage: msg.type === 'voice' ? 'Voice message' : msg.message,
         lastMessageTime: msg.createdAt.toDate(),
       });
     } else {
-      existing.lastMessage = msg.message;
+      existing.lastMessage = msg.type === 'voice' ? 'Voice message' : msg.message;
       existing.lastMessageTime = msg.createdAt.toDate();
       // Update photoURL and lastActive if we have newer data
       if (partnerUser) {
@@ -387,12 +391,29 @@ async function updateUserActivity() {
 // ------------------- FILTER MESSAGES -------------------
 const filteredMessages = computed(() => {
   if (!selectedChat.value) return [];
-  return messages.value.filter(
-    (msg) =>
-      (msg.userId === user.value.uid &&
-        msg.toUserId === selectedChat.value.uid) ||
-      (msg.userId === selectedChat.value.uid && msg.toUserId === user.value.uid)
-  );
+  return messages.value
+    .filter(
+      (msg) =>
+        (msg.userId === user.value.uid &&
+          msg.toUserId === selectedChat.value.uid) ||
+        (msg.userId === selectedChat.value.uid && msg.toUserId === user.value.uid)
+    )
+    .map(msg => {
+      // Convert base64 audio data to blob URL for voice messages
+      if (msg.type === 'voice' && msg.audioData && !msg.audioURL) {
+        msg.audioURL = msg.audioData; // Base64 data URL can be used directly
+        msg.isPlaying = false;
+      }
+
+      // Handle deleted messages
+      if (msg.deletedForEveryone) {
+        msg.deletedForEveryone = true;
+      } else if (msg.deletedForUsers && msg.deletedForUsers.includes(user.value.uid)) {
+        msg.deletedForMe = true;
+      }
+
+      return msg;
+    });
 });
 
 // ------------------- SAVE MESSAGE -------------------
@@ -404,6 +425,7 @@ async function saveMessage(messageText) {
 
   await addDoc(collection(db, "chat"), {
     message: messageText,
+    type: 'text',
     createdAt: new Date(),
     userId: user.value.uid,
     userName: user.value.displayName,
@@ -413,6 +435,61 @@ async function saveMessage(messageText) {
   });
   if (messageList.value) {
     messageList.value.scrollToBottom();
+  }
+}
+
+// ------------------- SAVE VOICE MESSAGE -------------------
+async function saveVoiceMessage(voiceData) {
+  if (!voiceData || !selectedChat.value) return;
+
+  // Update presence when sending a message
+  updateMyPresence();
+
+  // Convert blob to base64 for storage
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const base64Audio = reader.result;
+
+    await addDoc(collection(db, "chat"), {
+      message: 'Voice message',
+      type: 'voice',
+      audioData: base64Audio,
+      duration: voiceData.duration,
+      createdAt: new Date(),
+      userId: user.value.uid,
+      userName: user.value.displayName,
+      toUserId: selectedChat.value.uid,
+      toUserName: selectedChat.value.displayName,
+      userPhotoURL: user.value.photoURL || null,
+    });
+
+    if (messageList.value) {
+      messageList.value.scrollToBottom();
+    }
+  };
+  reader.readAsDataURL(voiceData.audioBlob);
+}
+
+// ------------------- DELETE MESSAGE -------------------
+async function handleDeleteMessage({ message, type }) {
+  const messageRef = doc(db, "chat", message.id);
+
+  try {
+    if (type === 'everyone') {
+      // Delete for everyone - mark the message as deleted for everyone
+      await updateDoc(messageRef, {
+        deletedForEveryone: true,
+        deletedAt: new Date(),
+        deletedBy: user.value.uid
+      });
+    } else if (type === 'me') {
+      // Delete for me only - add current user to deletedForUsers array
+      await updateDoc(messageRef, {
+        deletedForUsers: arrayUnion(user.value.uid)
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting message:', error);
   }
 }
 </script>
