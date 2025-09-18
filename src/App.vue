@@ -15,7 +15,7 @@
 
 <script setup>
 import { ref, onMounted } from "vue";
-import { auth } from "./firebase";
+import { auth } from "./main";
 // import { useRouter } from "vue-router";
 
 const user = ref(null);

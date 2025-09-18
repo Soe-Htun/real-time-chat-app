@@ -7,10 +7,13 @@ import piniaPluginPersistedstate from "pinia-plugin-persistedstate";
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getFirestore } from "firebase/firestore";
+import { getDatabase } from "firebase/database";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB2Br0W1SJaeMRFbDHuopifVm_ZerEgPeo",
   authDomain: "chatapp-15b27.firebaseapp.com",
+  databaseURL: "https://chatapp-15b27-default-rtdb.firebaseio.com",
   projectId: "chatapp-15b27",
 //   storageBucket: "chatapp-15b27.firebasestorage.app",
   storageBucket: "chatapp-15b27.appspot.com",
@@ -23,6 +26,8 @@ const firebaseApp = initializeApp(firebaseConfig);
 getAnalytics(firebaseApp);
 
 export const db = getFirestore(firebaseApp);
+export const realtimeDb = getDatabase(firebaseApp);
+export const auth = getAuth(firebaseApp);
 
 const app = createApp(App);
 const pinia = createPinia();
